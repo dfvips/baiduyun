@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              网盘直链下载助手
 // @namespace         https://github.com/syhyz1990/baiduyun
-// @version           6.1.5
+// @version           6.2.1
 // @author            YouXiaoHou
 // @description       👆👆👆👆👆👆👆 - 支持批量获取 ✅百度网盘 ✅阿里云盘 ✅天翼云盘 ✅迅雷云盘 ✅夸克网盘 ✅移动云盘 六大网盘的直链下载地址，配合 IDM，Xdown，Aria2，Curl，比特彗星等工具高效🚀🚀🚀下载，完美适配 Chrome，Edge，FireFox，360，QQ，搜狗，百分，遨游，星愿，Opera，猎豹，Vivaldi，Yandex，Kiwi 等 18 种浏览器。可在无法安装客户端的环境下使用，助手免费开源。😎
 // @license           AGPL-3.0-or-later
@@ -114,17 +114,13 @@
     let base = {
 
         getCookie(name) {
-            let cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                let cookiePair = cookies[i].trim().split('=');
-                if (cookiePair.length === 2) {
-                    let cookieName = cookiePair[0];
-                    if (cookieName === name) {
-                        return cookiePair[1];
-                    }
-                }
+            let cname = name + "=";
+            let ca = document.cookie.split(';');
+            for (let i = 0; i < ca.length; i++) {
+                let c = ca[i].trim();
+                if (c.indexOf(cname) == 0) return c.substring(cname.length, c.length);
             }
-            return '';
+            return "";
         },
 
         isType(obj) {
@@ -267,11 +263,14 @@
                 let requestObj = GM_xmlhttpRequest({
                     method: "GET", url, headers,
                     onload: (res) => {
-                        resolve(res.finalUrl);
+                       let responseHeaders = res.responseHeaders.split("\n");
+                       let locationHeader = responseHeaders.filter((header) => header.startsWith("location"))[0];
+                       resolve(locationHeader.replace("location:", ""));
                     },
                     onerror: (err) => {
                         reject(err);
                     },
+                    redirect: "manual"
                 });
             });
         },
@@ -906,7 +905,7 @@
             return accessToken;
         },
 
-        async getPCSLink(maxRequestTime = 2) {
+        async getPCSLink(maxRequestTime = 1) {
             selectList = this.getSelectedList();
             let fidList = this._getFidList(), url, res;
 
@@ -924,46 +923,27 @@
             }
             if (pt === 'share') {
                 this.getShareData();
+                if (!params.bdstoken) {
+                    return message.error('提示：请先登录网盘！');
+                }
                 if (selectList.length === 0) {
                     return message.error('提示：请先勾选要下载的文件！');
                 }
                 if (fidList.length === 2) {
                     return message.error('提示：请打开文件夹后勾选文件！');
                 }
-                if (!params.sign) {
-                    let url = `${pan.pcs[2]}&surl=${params.surl}&logid=${params.logid}`;
-                    let r = await base.get(url);
-                    if (r.errno === 0) {
-                        params.sign = r.data.sign;
-                        params.timestamp = r.data.timestamp;
-                    } else {
-                        let dialog = await Swal.fire({
-                            toast: true,
-                            icon: 'info',
-                            title: `提示：请将文件<span class="tag-danger">[保存到网盘]</span>👉前往<span class="tag-danger">[我的网盘]</span>中下载！`,
-                            showConfirmButton: true,
-                            confirmButtonText: '点击保存',
-                            position: 'top',
-                        });
-                        if (dialog.isConfirmed) {
-                            $('.tools-share-save-hb')[0].click();
-                        }
-                        return;
-                    }
+                let dialog = await Swal.fire({
+                    toast: true,
+                    icon: 'info',
+                    title: `提示：请将文件<span class="tag-danger">[保存到网盘]</span>👉前往<span class="tag-danger">[我的网盘]</span>中下载！`,
+                    showConfirmButton: true,
+                    confirmButtonText: '点击保存',
+                    position: 'top',
+                });
+                if (dialog.isConfirmed) {
+                    $('.tools-share-save-hb')[0].click();
                 }
-                if (!params.bdstoken) {
-                    return message.error('提示：请先登录网盘！');
-                }
-                let formData = new FormData();
-                formData.append('encrypt', params.encrypt);
-                formData.append('product', params.product);
-                formData.append('uk', params.uk);
-                formData.append('primaryid', params.primaryid);
-                formData.append('fid_list', fidList);
-                formData.append('logid', params.logid);
-                params.shareType === 'secret' ? formData.append('extra', params.extra) : '';
-                url = `${pan.pcs[1]}&sign=${params.sign}&timestamp=${params.timestamp}`;
-                res = await base.post(url, formData, {"User-Agent": pan.ua});
+                return;
             }
             if (res.errno === 0) {
                 let html = this.generateDom(res.list);
@@ -1199,13 +1179,14 @@
                 e.preventDefault();
                 let dataset = e.currentTarget.dataset;
                 let href = dataset.link;
-                let url = await this.getRealLink(dataset.did, dataset.fid);
-                if (url) href = url;
-                let d = document.createElement("a");
-                d.download = e.currentTarget.dataset.filename;
-                d.rel = "noopener";
-                d.href = href;
-                d.dispatchEvent(new MouseEvent("click"));
+                // let url = await this.getRealLink(dataset.did, dataset.fid);
+                // if (url) href = url;
+                $('#downloadIframe').attr('src', href);
+                // let d = document.createElement("a");
+                // d.download = e.currentTarget.dataset.filename;
+                // d.rel = "noopener";
+                // d.href = href;
+                // d.dispatchEvent(new MouseEvent("click"));
             });
             doc.on('click', '.listener-link-api-btn', async (e) => {
                 base.setClipboard(e.target.dataset.filename);
@@ -1253,7 +1234,12 @@
             }, {
                 authorization,
                 "content-type": "application/json;charset=utf-8",
+                "referer": "https://www.aliyundrive.com/",
+                "x-canary": "client=windows,app=adrive,version=v6.0.0"
             });
+            if (res.code === 'AccessTokenInvalid') {
+                return message.error('提示：Token过期，请刷新网页后重试！');
+            }
             if (res.url) {
                 return res.url;
             }
@@ -1346,6 +1332,17 @@
                     }
                 } catch (e) {
                     return message.error('提示：请先登录网盘！');
+                }
+            } else {
+                if (selectList.length > 20) {
+                    return message.error('提示：单次最多可勾选 20 个文件！');
+                }
+                let noUrlSelectList = selectList.filter(v => !Boolean(v.url))
+                for (let i = 0; i < noUrlSelectList.length; i++) {
+                    let res = await this.getRealLink(noUrlSelectList[i].driveId, noUrlSelectList[i].fileId);
+                    if (res) {
+                        noUrlSelectList[i].url = res;
+                    }
                 }
             }
             let html = this.generateDom(selectList);
@@ -2000,7 +1997,18 @@
                     selectList[val.index].downloadUrl = val.downloadUrl;
                 });
             } else {
-                return message.error('提示：请保存到自己网盘后去网盘主页下载！');
+                let dialog = await Swal.fire({
+                    toast: true,
+                    icon: 'info',
+                    title: `提示：请将文件<span class="tag-danger">[保存到网盘]</span>👉前往<span class="tag-danger">[我的网盘]</span>中下载！`,
+                    showConfirmButton: true,
+                    confirmButtonText: '点击保存',
+                    position: 'top',
+                });
+                if (dialog.isConfirmed) {
+                    document.querySelector('.saveToCloud').click();
+                    return;
+                }
             }
             let html = this.generateDom(selectList);
             this.showMainDialog(pan[mode][0], html, pan[mode][1]);
@@ -2093,7 +2101,7 @@
 
         getSelectedList() {
             try {
-                let doms = document.querySelectorAll('.pan-list li');
+                let doms = document.querySelectorAll('.SourceListItem__item--XxpOC');
                 let selectedList = [];
                 for (let dom of doms) {
                     let domVue = dom.__vue__;
@@ -2285,10 +2293,18 @@
                 let html = this.generateDom(res.data);
                 this.showMainDialog(pan[mode][0], html, pan[mode][1]);
             } else {
-                message.error('提示：请保存到自己网盘后去网盘主页下载！');
-                await base.sleep(1000);
-                document.querySelector('.file-info_r').click();
-                return;
+                let dialog = await Swal.fire({
+                    toast: true,
+                    icon: 'info',
+                    title: `提示：请将文件<span class="tag-danger">[保存到网盘]</span>👉前往<span class="tag-danger">[我的网盘]</span>中下载！`,
+                    showConfirmButton: true,
+                    confirmButtonText: '点击保存',
+                    position: 'top',
+                });
+                if (dialog.isConfirmed) {
+                    document.querySelector('.file-info_r').click();
+                    return;
+                }
             }
         },
 
@@ -2777,9 +2793,9 @@
         },
 
         detectPage() {
-            let hostname = location.hostname;
-            if (/^yun/.test(hostname)) return 'home';
-            if (/^caiyun/.test(hostname)) return 'share';
+            let path = location.pathname;
+            if (/^\/w/.test(path)) return 'home';
+            if (/^\/link/.test(path)) return 'share';
             return '';
         },
 
